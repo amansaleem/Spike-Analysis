@@ -1,0 +1,292 @@
+classdef Map1DGUI < SpikeDisplayGUI & hgsetget
+    
+    properties
+        variable
+        maps1d
+        showErrorBars = 1;
+    end
+    
+    methods
+        % add an update button, this can be called by central
+        function obj = Map1DGUI(data)
+            obj.Data.es = data;
+            
+            delayT = inputdlg('Enter delay value: ');
+            delayT = str2num(delayT{1});
+            obj.Data.es.spikeTrain = circshift(obj.Data.es.spikeTrain,[-delayT 0]);
+            
+            obj = obj.calculateSubsets;
+            obj = chooseVarUI(obj);
+            
+            obj = obj.calculateMaps;
+            
+            obj = obj.createUI;
+        end
+        function obj = createUI(obj)
+            obj.FigInfo.fig = figure('Name', 'Map 1D Display',...
+                'Position', [700 300 900 600]);
+            obj.FigInfo.layout = uiextras.VBox('Parent', obj.FigInfo.fig);
+            obj.FigInfo.titleBar = uiextras.HBox('Parent', obj.FigInfo.layout);
+            obj.FigInfo.FigGrid = uiextras.Grid('Parent', obj.FigInfo.layout);
+            obj.FigInfo.layout.Sizes = [80 -1];
+            set(obj.FigInfo.titleBar, 'Spacing',20)
+            
+            obj.FigInfo.cellSection = uiextras.VBox('Parent', obj.FigInfo.titleBar);
+            obj.FigInfo.cellDisplay = uicontrol('Style','text','Parent', obj.FigInfo.cellSection,'fontsize',12,...
+                'String',['Cell ' num2str(obj.ChosenCell) ': ' obj.Data.es.spikeIDs{obj.ChosenCell}]);
+            obj.FigInfo.showErrorBars = uiextras.HBox('Parent', obj.FigInfo.cellSection);
+            uicontrol('Style','text','Parent', obj.FigInfo.showErrorBars,'fontsize',12,...
+                'String','Errorbar: ');
+            obj.FigInfo.errbOn  = uicontrol('Parent', obj.FigInfo.showErrorBars,'String','ON','Enable','off','callback',@(~,~) obj.turnErrorOn);
+            obj.FigInfo.errbOff = uicontrol('Parent', obj.FigInfo.showErrorBars,'String','OFF','Enable','on','callback',@(~,~) obj.turnErrorOff);
+            
+            obj.FigInfo.varChooseGrid = uiextras.Grid('Parent',obj.FigInfo.titleBar);
+            obj.FigInfo.varTraj = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Traj','Callback',@(~,~) obj.trajChoose);
+            obj.FigInfo.varVisSpd = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Vis Spd','Callback',@(~,~) obj.visSpdChoose);
+            obj.FigInfo.varRunSpd = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Run Spd','Callback',@(~,~) obj.runSpdChoose);
+            obj.FigInfo.varDist = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Distance','Callback',@(~,~) obj.distChoose);
+            obj.FigInfo.varTotDist = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Total Distance','Callback',@(~,~) obj.totDistChoose);
+            obj.FigInfo.varRoomPercent = uicontrol('Enable','on','Parent',obj.FigInfo.varChooseGrid,'String','Room %','Callback',@(~,~) obj.roomPercentChoose);
+            set(obj.FigInfo.varChooseGrid,'ColumnSizes', [-1 -1],'RowSizes', [-1 -1 -1]);
+            
+            obj.FigInfo.normal = axes('Parent',obj.FigInfo.FigGrid);
+            obj.FigInfo.roomLength = axes('Parent',obj.FigInfo.FigGrid);
+            obj.FigInfo.noContrast = axes('Parent',obj.FigInfo.FigGrid);
+            
+            obj.FigInfo.contrast = axes('Parent',obj.FigInfo.FigGrid);
+            obj.FigInfo.gain = axes('Parent',obj.FigInfo.FigGrid);
+            obj.FigInfo.legend = axes('Parent',obj.FigInfo.FigGrid);
+            
+            set(obj.FigInfo.FigGrid,'ColumnSizes', [-1 -1],'RowSizes', [-1 -1 -1]);
+            
+        end
+        % Move figure related components to createUI 
+        function obj = chooseVarUI(obj)
+            
+            VarTypes = {'Traj','Distance','Total Distance','Room %','Vis Spd','Run Spd'};
+            [s,v] = listdlg('PromptString','Select the variable:',...
+                      'SelectionMode','single',...
+                      'ListString',VarTypes);
+                  if v
+                      switch s
+                          case 1; obj.ChosenVar = 'traj';
+                          case 2; obj.ChosenVar = 'distTrav';
+                          case 3; obj.ChosenVar = 'totDistTrav';
+                          case 4; obj.ChosenVar = 'trajPercent';
+                          case 5; obj.ChosenVar = 'trajspeed';
+                          case 6; obj.ChosenVar = 'smthBallSpd';
+                      end
+                  else
+                      obj.ChosenVar = 'trajPercent';
+                  end
+        end
+        
+        function obj = calculateMaps(obj)
+            obj.maps1d = [];
+            eval(['obj.variable = obj.Data.es.' obj.ChosenVar ';']);
+%             obj = obj.getOneMap('all');
+            obj = obj.getOneMap('normal');
+%             obj = obj.getOneMap('lowRoomLength');
+%             obj = obj.getOneMap('highRoomLength');
+%             obj = obj.getOneMap('lowGain');
+%             obj = obj.getOneMap('highGain');
+            obj = obj.getOneMap('noContrast');
+            obj = obj.getOneMap('lowContrast');
+            obj = obj.getOneMap('highContrast');
+            
+        end
+        function obj = getOneMap(obj,type)
+            progressMessage = waitbar(0,['Processing 1D maps for ' type '...']);
+            eval(['obj.maps1d.' type ' = oneDimMap;']);
+            eval(['datapts = sum(obj.Subset.' type ');']);
+            if datapts>100
+                %This is a random number for now
+                eval(['obj.maps1d.' type ' = obj.maps1d.' type '.trainSpikeMap( obj.variable(obj.Subset.' type '), obj.Data.es.spikeTrain(obj.Subset.' type ',:) );']);
+            end
+            close(progressMessage)
+        end
+        function obj = turnErrorOn(obj)
+            set(obj.FigInfo.errbOn,'Enable','off');
+            set(obj.FigInfo.errbOff,'Enable','on');
+            obj.showErrorBars = 1;
+        end
+        function obj = turnErrorOff(obj)
+            set(obj.FigInfo.errbOn,'Enable','on');
+            set(obj.FigInfo.errbOff,'Enable','off');
+            obj.showErrorBars = 0;
+        end
+        function makeAllPlots(obj,icell)
+%             icell = obj.ChosenCell;
+%             display(['Chosen cell: ' num2str(icell)]);
+            eval(['obj.variable = obj.Data.es.' obj.ChosenVar ';']);
+            
+            set(obj.FigInfo.cellDisplay,...
+                'String',['Cell ' num2str(icell) ': ' obj.Data.es.spikeIDs{icell}]);
+            
+            plot1Dmap(obj.maps1d.normal,icell,obj.showErrorBars,'k',obj.FigInfo.normal)
+%             axis(obj.FigInfo.normal,'tight');
+            set(obj.FigInfo.normal,'TickDir','out','box','off','color','none');
+            title(obj.FigInfo.normal,'NORMAL');
+            
+            plot1Dmap(obj.maps1d.noContrast,icell,obj.showErrorBars,[.5 .5 .5],obj.FigInfo.noContrast)
+%             axis(obj.FigInfo.noContrast,'tight');
+            set(obj.FigInfo.noContrast,'TickDir','out','box','off','color','none');
+            title(obj.FigInfo.noContrast, 'Zero Contrast');
+            
+%             hold(obj.FigInfo.roomLength,'off');
+%             plot1Dmap(obj.maps1d.lowRoomLength,icell,obj.showErrorBars,'b',obj.FigInfo.roomLength)
+%             hold(obj.FigInfo.roomLength,'on');
+%             plot1Dmap(obj.maps1d.highRoomLength,icell,obj.showErrorBars,'r',obj.FigInfo.roomLength)
+% %             axis(obj.FigInfo.roomLength,'tight');
+%             set(obj.FigInfo.roomLength,'TickDir','out','box','off','color','none');
+%             title(obj.FigInfo.roomLength, 'RoomLength');
+            
+            hold(obj.FigInfo.contrast,'off');
+            plot1Dmap(obj.maps1d.lowContrast,icell,0,'b',obj.FigInfo.contrast)
+            hold(obj.FigInfo.contrast,'on');
+            plot1Dmap(obj.maps1d.highContrast,icell,0,'r',obj.FigInfo.contrast)
+            plot1Dmap(obj.maps1d.normal,icell,0,'k',obj.FigInfo.contrast)
+%             hold(obj.FigInfo.contrast,'off');
+%             plot1Dmap(obj.maps1d.lowContrast,icell,obj.showErrorBars,'b',obj.FigInfo.contrast)
+%             hold(obj.FigInfo.contrast,'on');
+%             plot1Dmap(obj.maps1d.highContrast,icell,obj.showErrorBars,'r',obj.FigInfo.contrast)
+%           
+%             axis(obj.FigInfo.contrast,'tight');
+            set(obj.FigInfo.contrast,'TickDir','out','box','off','color','none');
+            title(obj.FigInfo.contrast, 'Contrast');
+            
+%             hold(obj.FigInfo.gain,'off');
+%             plot1Dmap(obj.maps1d.lowGain,icell,obj.showErrorBars,'b',obj.FigInfo.gain)
+%             hold(obj.FigInfo.gain,'on');
+%             plot1Dmap(obj.maps1d.highGain,icell,obj.showErrorBars,'r',obj.FigInfo.gain)
+% %             axis(obj.FigInfo.gain,'tight');
+%             set(obj.FigInfo.gain,'TickDir','out','box','off','color','none');
+%             title(obj.FigInfo.gain, 'Gain');
+            
+            plot(obj.FigInfo.legend,0,0,'b',0,0,'r')
+%             axis(obj.FigInfo.legend, 'off')
+            title(obj.FigInfo.legend, obj.ChosenVar,'fontsize',16)
+            obj.FigInfo.legendHandle = legend(obj.FigInfo.legend,'Low','High');
+            set(obj.FigInfo.legendHandle,'fontsize',14);
+            
+        end
+        function obj = plot_subplot(obj,colorin,plot_index,icell)
+            plot1Dmap(obj.model,icell,obj.showErrorBars,colorin,plot_index)
+        end
+        function obj = calculateSubsets(obj)
+            es = obj.Data.es;
+            
+            allCont = unique(es.contrast(~isnan(es.contrast)));
+            if length(allCont)==4
+                cont = allCont(3);
+            elseif length(allCont)>1
+                cont = allCont(end-1);
+            else
+                cont = allCont;
+            end
+            
+            %JUL - 15.09.2015: introduced allGain to deal with cases where
+            %the baseline gain is different than 1
+            allGain = unique(es.gain(~isnan(es.gain)));
+            if length(allGain)==4
+                gain = allGain(3);
+            elseif length(allGain)>1
+                gain = allGain(end-1);
+            else
+                gain = allGain;
+            end
+            
+            obj.Subset.all = es.traj>0 & es.smthBallSpd>5& ~isnan(es.smthBallSpd);
+            obj.Subset.normal = obj.Subset.all & ...
+                es.gain==gain & es.roomLength==1 & es.contrast==cont ...;
+                & es.outcome==2;
+            obj.Subset.lowRoomLength = obj.Subset.all & ...
+                es.gain==gain & es.roomLength<1 & es.contrast==cont;
+            obj.Subset.highRoomLength = obj.Subset.all & ...
+                es.gain==gain & es.roomLength>1 & es.contrast==cont;
+            obj.Subset.lowGain = obj.Subset.all & ...
+                es.gain<gain & es.roomLength==1 & es.contrast==cont;
+            obj.Subset.highGain = obj.Subset.all & ...
+                es.gain>gain & es.roomLength==1 & es.contrast==cont;
+            obj.Subset.lowContrast = obj.Subset.all & ...
+                es.gain==gain & es.roomLength==1 & es.contrast<cont & es.contrast>0;
+            obj.Subset.highContrast = obj.Subset.all & ...
+                es.gain==gain & es.roomLength==1 & es.contrast>cont;
+            obj.Subset.noContrast = obj.Subset.all & ...
+                es.contrast==0;
+        end
+        % Choosing variables
+        function trajChoose(obj)
+            obj.ChosenVar = 'traj';
+            set(obj.FigInfo.varTraj, 'Enable','off');
+            set(obj.FigInfo.varVisSpd, 'Enable','on');
+            set(obj.FigInfo.varRunSpd, 'Enable','on');
+            set(obj.FigInfo.varDist, 'Enable','on');
+            set(obj.FigInfo.varTotDist, 'Enable','on');
+            set(obj.FigInfo.varRoomPercent, 'Enable','on');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+        function visSpdChoose(obj)
+            obj.ChosenVar = 'trajspeed';
+            set(obj.FigInfo.varTraj, 'Enable','on');
+            set(obj.FigInfo.varVisSpd, 'Enable','off');
+            set(obj.FigInfo.varRunSpd, 'Enable','on');
+            set(obj.FigInfo.varDist, 'Enable','on');
+            set(obj.FigInfo.varTotDist, 'Enable','on');
+            set(obj.FigInfo.varRoomPercent, 'Enable','on');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+        function runSpdChoose(obj)
+            obj.ChosenVar = 'smthBallSpd';
+            set(obj.FigInfo.varTraj, 'Enable','on');
+            set(obj.FigInfo.varVisSpd, 'Enable','on');
+            set(obj.FigInfo.varRunSpd, 'Enable','off');
+            set(obj.FigInfo.varDist, 'Enable','on');
+            set(obj.FigInfo.varTotDist, 'Enable','on');
+            set(obj.FigInfo.varRoomPercent, 'Enable','on');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+        function distChoose(obj)
+            obj.ChosenVar = 'distTrav';
+            set(obj.FigInfo.varTraj, 'Enable','on');
+            set(obj.FigInfo.varVisSpd, 'Enable','on');
+            set(obj.FigInfo.varRunSpd, 'Enable','on');
+            set(obj.FigInfo.varDist, 'Enable','off');
+            set(obj.FigInfo.varTotDist, 'Enable','on');
+            set(obj.FigInfo.varRoomPercent, 'Enable','on');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+        function totDistChoose(obj)
+            obj.ChosenVar = 'totDistTrav';
+            set(obj.FigInfo.varTraj, 'Enable','on');
+            set(obj.FigInfo.varVisSpd, 'Enable','on');
+            set(obj.FigInfo.varRunSpd, 'Enable','on');
+            set(obj.FigInfo.varDist, 'Enable','on');
+            set(obj.FigInfo.varTotDist, 'Enable','off');
+            set(obj.FigInfo.varRoomPercent, 'Enable','on');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+        function roomPercentChoose(obj)
+            obj.ChosenVar = 'trajPercent';
+            set(obj.FigInfo.varTraj, 'Enable','on');
+            set(obj.FigInfo.varVisSpd, 'Enable','on');
+            set(obj.FigInfo.varRunSpd, 'Enable','on');
+            set(obj.FigInfo.varDist, 'Enable','on');
+            set(obj.FigInfo.varTotDist, 'Enable','on');
+            set(obj.FigInfo.varRoomPercent, 'Enable','off');
+            
+            obj = obj.calculateMaps;
+            obj.makeAllPlots(obj.ChosenCell)
+        end
+    end
+end

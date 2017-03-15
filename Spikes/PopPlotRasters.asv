@@ -1,0 +1,154 @@
+function h = PopPlotRasters( uu, rptlist, stimlist, magicunit, magictime )
+% PopPlotRasters plots the rasters of the responses of set of units
+%
+% PopPlotRasters( uu ) plots rasters for all units in uu. One figure per
+% stimulus, one panel per repeat.
+%
+% PopPlotRasters( uu, rptlist ) lets you specify the set of repeats. Set it
+% to empty (DEFAULT) for all repeats.
+%
+% PopPlotRasters( uu, rptlist, stimlist ) lets you specify the set of stimuli. Set it
+% to empty (DEFAULT) for all stimuli.
+%
+% PopPlotRasters( uu, rptlist, stimlist, magicunit ) plots the unit you are
+% interested in in red (the others are black). The number is the order among the unit list
+%
+% PopPlotRasters( uu, rptlist, stimlist, magicunit, magictime ) lets you
+% specify a magic time t (in sec) where things were supposed to happen (for 
+% example the time of electrical stimulation).
+%
+% EXAMPLE:
+% uu = UnitLoad(DIRS.spikes,'M110306TS',4,2);
+% PopPlotRasters(uu,[1:10],1,1,2);
+%
+% part of Spikes
+
+% 2011-03 MC
+% 2011-03 MS added the possibility of plotting either the response to one
+%         stimulus over many repeats, or the response on one repeat to many
+%         stimuli, and added magicunit
+% 2011-03 MC streamlined a bit
+
+
+if nargin<5
+    magictime = [];
+end
+
+if nargin<4
+    magicunit = [];
+end
+
+if nargin<3
+    stimlist = [];
+end
+
+if nargin<2
+    rptlist = [];
+end
+
+%%
+
+if isempty(magictime)
+    magictime = NaN;
+end
+ 
+if isempty(magicunit);
+    magicunit = NaN;
+end
+
+nu = length(uu);
+
+if nu == 0
+    disp('No units provided');
+    return;
+end
+
+nstim = uu(1).nstim;
+nrpts = uu(1).nrepeats;
+
+if isempty(stimlist)
+    stimlist = 1:nstim;
+end
+
+if isempty(rptlist)
+    rptlist = 1:nrpts;
+end
+
+if any(rptlist<1) || any(rptlist>nrpts)
+    error('Bad repeat number');
+end
+
+if any(stimlist<1) || any(stimlist>nstim)
+    error('Bad stimulus number');
+end
+
+if length(stimlist)>1 && length(rptlist)>1
+    for istim = stimlist(:)'
+        h(istim) = PopPlotRasters( uu, rptlist, istim, magicunit, magictime );
+    end
+    return
+end
+
+%%
+
+if length(rptlist) > 1
+     triallist = rptlist;
+     maxtrial = length(rptlist);
+     titlename = ['Stimulus ' int2str(stimlist)]; 
+elseif length(stimlist) > 1
+     triallist = stimlist;
+     maxtrial = length(stimlist);
+     titlename = ['Repeat ' int2str(rptlist)]; 
+else triallist = 1;
+     maxtrial = 1;
+     titlename = sprintf('Repeat %d and Stimulus %d',rptlist,stimlist); 
+end
+
+ncols = ceil(maxtrial/20);
+nrows = ceil(maxtrial/ncols);
+
+h = figure;
+rax = zeros(maxtrial,1); % raster axes
+itrial = 1; 
+
+for istim = stimlist
+    
+    for irep = rptlist
+        
+        rax(itrial)= subplot(nrows,ncols,itrial); % axes('position',get(hax(istim),'position'));
+        text(0,0.5,num2str(triallist(itrial)),'hori','right','vert','middle','units','norm','fontsize',18);
+        hold on;
+        
+        plot([magictime magictime],[0 nu], 'b:');
+        
+        for iu = 1:nu
+            xx = uu(iu).spiketimes{istim,irep};
+            if size(xx,1) > 1  % ensure it is a row vector
+                xx = xx(:)';
+            end
+            if ~isempty(xx)
+                if sum(iu == magicunit), col = [1 0 0]; else col = [0 0 0]; end
+                p = plot( [1;1]*xx, [iu-1;iu]*ones(size(xx)), '-','color',col);
+                set(p,'linewidth',1);
+                uu(iu).ichan uu(iu).ichan
+            end
+            plot([1;1]*uu(iu).stimdurs(istim,irep),[iu-1;iu],'r-');
+        end
+        
+        maxdur = max(max(uu(1).stimdurs(:,:)));
+        text(maxdur,itrial+1,num2str(round(maxdur*100)/100),'hori','center','vert','top');
+        
+        itrial = itrial+1;
+        
+    end
+
+end
+
+set(rax,'visible','on','ytick',[],'xlim',[0 inf], 'ylim',[0,nu]);
+set(rax,'xcolor','w','ycolor','w');
+set(rax,'xtick',[]);
+set(rax,'ydir','reverse');
+
+title(rax(1),[uu(1).animal ' Expt ' num2str(uu(1).iseries) '-' num2str(uu(1).iexp) '_' titlename ' ALL UNITS'],'interpreter','none');
+
+set(gcf,'papertype','A4','paperunits','centimeters','paperposition',[0.63452 0.63452 19.715 28.408]);

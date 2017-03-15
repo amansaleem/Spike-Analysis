@@ -1,0 +1,200 @@
+function [openpath,strarrAnimals] = DirDialog(dirtype)
+% DIRDIALOG: Open directory dialog window
+% 2009-01 Andrew Zaharia
+% 2009-02 AZ: allow user to select only a subset of animals (i.e., cats or mice)
+% HINT: If you can't close a window because of a CloseRequestFcn error, run:
+%       delete(get(0,'Children'))  (you may have to hit ctrl+c in the
+%       matlab window first)
+
+global DIRS
+
+currdir = eval(['DIRS.' dirtype]);
+
+rootdir = dir(currdir);
+notADir = [];
+for i = 1:size(rootdir,1)
+  if rootdir(i).isdir == 0;
+      notADir = [notADir; i];
+  end
+end
+rootdir(notADir) = [];
+% delete . and ..
+rootdir = rootdir(3:end);
+% Make sure all entries are capitalized
+for dirIX = 1:size(rootdir,1)
+   rootdir(dirIX).name = upper(rootdir(dirIX).name);
+end
+% Reorder, sorted by name
+[junk,dirIX] = sort({rootdir.name});
+rootdir = rootdir(dirIX);
+clear junk dirIX
+
+
+set(0,'defaultFigureColor',get(0,'defaultUicontrolBackgroundColor'));
+
+fdialog = figure('MenuBar','none','Units','Pixels','Position',[200 200 360 500],...
+   'NumberTitle','off','Name',['Choose the ',dirtype,' directory...'],...
+   'CloseRequestFcn',@closedialog,'KeyPressFcn',@closeOnEnterKey);
+
+% Can put more options in for drop-down menu in 'String' here
+fdialogh.popRootDir = uicontrol('Style','popupmenu','Units','Pixels','Tag','popRootDir',...
+   'Position',[20 450 160 20],'String',{ currdir; 'Choose another directory...' },...
+   'Callback',@populateSubDirs,'KeyPressFcn',@closeOnEnterKey);
+
+fdialogh.listSubDir  = uicontrol('Style','listbox','Units','Pixels','Tag','listSubDir',...
+   'Position',[220 90 120 380],'String',{'' rootdir.name},...
+   'CallBack',@updateEditPath,'KeyPressFcn',@closeOnEnterKey,'Enable','on');
+fdialogh.txtRootDir = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'HorizontalAlignment','left',...
+  'String','Root Directory','Style','text','Tag','txtRootDir',...
+  'Position',[20 470 160 20]);
+fdialogh.txtSubDir = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'HorizontalAlignment','left',...
+  'String','Subdirectory','Style','text','Tag','txtSubDir',...
+  'Position',[220 470 100 20]);
+fdialogh.txtSlash = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'FontWeight','bold','HorizontalAlignment','center',...
+  'String','\','Style','text','Tag','txtSlash',...
+  'Position',[190 450 20 16]);
+
+fdialogh.txtInst = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'FontWeight','bold','HorizontalAlignment','left',...
+  'String',[dirtype,' directory to open:'],'Style','text','Tag','txtInst',...
+  'Position',[20 70 160 20]);
+fdialogh.editPath = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'HorizontalAlignment','left',...
+  'String','','Style','edit','Tag','editPath',...
+  'Position',[20 50 160 20],'KeyPressFcn',@closeOnEnterKey);
+fdialogh.pbOK = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'HorizontalAlignment','left',...
+  'String','OK','Style','pushbutton','Tag','pbOK',...
+  'Position',[220 50 120 20],'CallBack',@closedialog);
+
+fdialogh.txtSubset = uicontrol('Parent',fdialog,'Units','Pixels',...
+  'FontWeight','bold','HorizontalAlignment','left',...
+  'String',['Within this directory, open:'],'Style','text','Tag','txtSubset',...
+  'Position',[20 10 160 20]);
+fdialogh.popSubset = uicontrol('Style','popupmenu','Units','Pixels','Tag','popSubset',...
+   'Position',[220 15 120 20],'String',{ 'All animals'; 'all Cats'; 'all Mice'; 'only BALL'; 'only TS'; 'only ZINTRA'},...
+   'KeyPressFcn',@closeOnEnterKey);
+
+updateEditPath;   % Update text box with RootDir\SubDir
+
+uiwait(fdialog);  % Wait for user input
+
+
+%% FUNCTIONS
+function updateEditPath(hObject,eventdata)
+    a = get(fdialogh.popRootDir,'String');
+    b = get(fdialogh.listSubDir,'String');
+    openpath = [a{get(fdialogh.popRootDir,'Value')} filesep b{get(fdialogh.listSubDir,'Value')}];
+    set(fdialogh.editPath,'String',openpath);
+end
+
+function rootdir = populateSubDirs(hObject,eventdata)
+    a = get(fdialogh.popRootDir,'String');
+    
+    if strcmp(a{get(fdialogh.popRootDir,'Value')},a{end})
+        openpath = uigetdir(currdir,[dirtype, ' directory']);
+        set(fdialogh.editPath,'String',openpath);
+        % if clicked CANCEL in uigetdir, close dialog & CLEAR path selected
+        if strcmp(openpath,'0') || openpath == 0
+            closedialog(hObject);
+            return;
+        else  % if clicked OK in uigetdir, close dialog & RETAIN path selected
+            closedialog(findobj('Tag','pbOK')); %Pretend we clicked 'OK' in fdialog
+            return;
+        end
+    end
+    
+    % Poll directory selected
+    rootdir = dir(a{get(fdialogh.popRootDir,'Value')});
+    % Clear non-directory results (i.e., files)
+    notADir = [];
+    for i = 1:size(rootdir,1)
+      if rootdir(i).isdir == 0;
+          notADir = [notADir; i];
+      end
+    end
+    rootdir(notADir) = [];
+    set(fdialogh.listSubDir,'String',{'' rootdir(3:end).name}); % Don't display '.' and '..'
+    updateEditPath;
+end
+
+function closeOnEnterKey(hObject,eventdata)
+    if strcmp(eventdata.Key,'return')
+        closedialog(findobj('Tag','pbOK'),eventdata); %Pretend we clicked 'OK' in fdialog
+    elseif strcmp(eventdata.Key,'escape')
+        closedialog(gcf,eventdata); %AZ 2009-04: Pretend we clicked the close button
+    end
+end
+
+function closedialog(hObject,eventdata)
+    if hObject == fdialogh.pbOK % Clicked 'OK', RETAIN selected path
+        openpath = get(fdialogh.editPath,'String');
+        if strcmp(openpath(end),filesep)
+            % Clear trailing slash, so they don't build up on multiple runs
+            openpath = openpath(1:end-1);
+        end
+        
+        %2009-02 AZ: allow user to select only a subset of animals
+        % (i.e., cats or mice)
+        strarrAnimals = ListAnimals(openpath);
+        if ~isempty(strarrAnimals)
+            switch get(fdialogh.popSubset,'Value')
+                case 1 % "All animals"
+                    % do nothing
+                case 2 % "all Cats"
+                    notADir = zeros(length(strarrAnimals),1);
+                    for i = 1:length(notADir)
+                        if strcmpi(strarrAnimals{1,i}(1),'M')
+                            notADir(i) = 1;
+                        end
+                    end
+                    strarrAnimals = cell2struct(strarrAnimals,'name');
+                    strarrAnimals(find(notADir)) = [];
+                    strarrAnimals = struct2cell(strarrAnimals);
+                case 3 % "all Mice"
+                    notADir = zeros(length(strarrAnimals),1);
+                    for i = 1:length(notADir)
+                        if ~strcmpi(strarrAnimals{1,i}(1),'M')
+                            notADir(i) = 1;
+                        end
+                    end
+                    strarrAnimals = cell2struct(strarrAnimals,'name');
+                    strarrAnimals(find(notADir)) = [];
+                    strarrAnimals = struct2cell(strarrAnimals);
+                case 4 % "only BALL"
+                    notADir = zeros(length(strarrAnimals),1);
+                    for i = 1:length(notADir)
+                        if ~isempty(strfind(strarrAnimals{i},'BALL'))
+                            notADir(i) = 1;
+                        end
+                    end
+                    strarrAnimals = cell2struct(strarrAnimals,'name');
+                    strarrAnimals(find(notADir)) = [];
+                    strarrAnimals = struct2cell(strarrAnimals);
+                otherwise
+                    warning(['Invalid animal selection. ' ...
+                        'Will now assume you wanted to select all animals.']);
+                    % do nothing
+            end
+        else %Allow user to select a single animal
+            if isdir(openpath)
+                i = []; % re-use var in static workspace
+                [i.p,i.n,i.e] = fileparts(openpath);
+                strarrAnimals{1} = i.n;
+            else
+                warning('Invalid directory selection.');
+            end
+            openpath = currdir; % slightly deceiving behavior...
+        end
+        
+    else  % Didn't click 'OK', CLEAR selected path
+        openpath = [];
+        strarrAnimals = {};
+    end
+    delete(fdialog);
+end
+
+end

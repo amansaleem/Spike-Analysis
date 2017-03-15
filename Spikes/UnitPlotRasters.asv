@@ -1,0 +1,98 @@
+function h = UnitPlotRasters( unit, protocol, stimlist )
+% UnitPlotRasters plots the rasters of the responses of a Unit
+%
+% UnitPlotRasters( unit )
+%
+% UnitPlotRasters( unit, protocol )
+%
+% UnitPlotRasters( unit, protocol, stimlist )
+%
+% part of Spikes
+%
+% 2000-11 MC
+% 2001-03 MC added protocol in inputs
+% 2001-10 MC modified the graphics adding titles, etc.
+% 2003-03 VM made it fit for traces
+% 2003-07 MC allowed for stimlist in inputs
+% 2007-09 MC marked the axis of duration more properly
+% 2009-06 SK made it return a handle to the figure
+
+% unit = UnitLoad( DIRS.spikes, 'CATZ008', 5, 9, 1, 2);
+
+% See if datatype is right and data exist
+if ~strcmp(unit.datatype,'spiketimes') || isempty(unit.spiketimes)
+    warning('UnitPlotRasters:NotImplemented','Can''t plot rasters because there are no spikes');
+    return
+end
+
+nstim = unit.nstim;
+nrpts	= unit.nrepeats;
+
+if nargin<3
+    nax = nstim;
+    stimlist = 1:nstim;
+    ncols = ceil(nstim/20);
+else
+    nax = length(stimlist);
+    ncols = 1;
+end
+
+nrows = ceil(nax/ncols);
+
+h = figure;
+rax = zeros(nax,1); % raster axes
+% hax = []; % histo axes
+
+
+% [R, resolution] = UnitGetRates( unit );
+
+for iax = 1:nax
+
+    istim = stimlist(iax);
+
+    rax(iax)= subplot(nrows,ncols,iax,'align'); % MC added 'align' 2011-05-18
+    text(0,0.5,num2str(istim),'hori','right','vert','middle','units','norm','fontsize',18);
+    hold on;
+
+    for irpt = 1:nrpts
+        %xx = unit.spiketimes{istim,irpt};u
+        xx = unit.spiketimes{istim,irpt};        
+        xx = xx(:)'; % ensure it is a row vector
+        if ~isempty(xx)
+            p = plot( [1;1]*xx, [irpt-1;irpt]*ones(size(xx)), '-','color',[0 0 0]);
+            set(p,'linewidth',1);
+        end
+        plot([1;1]*unit.stimdurs(istim,irpt),[irpt-1;irpt],'r-');
+    end
+
+    if nargin>1
+        
+        if ~isempty(protocol.pfiledurs)
+            plot([1;1]*protocol.pfiledurs(istim),[0 nrpts],'g-');
+        end
+    end
+
+    %   set(rax(istim),'xlim',[0 resolution*n]);
+
+    maxdur = max(unit.stimdurs(istim,:));
+    text(maxdur,irpt+1,num2str(round(maxdur*100)/100),'hori','center','vert','top');
+    % set(gca,'xtick',maxdur);
+end
+set(rax,'visible','on','ydir','reverse','ytick',[],'xlim',[0 inf], 'ylim',[0,nrpts]);
+set(rax,'xcolor','w','ycolor','w');
+set(rax,'xtick',[]);
+% text(1,1,num2str(round(mx)),'units','norm','hori','left','vert','middle');
+
+
+title(rax(1),[unit.animal ' Expt ' num2str(unit.iseries) '-' num2str(unit.iexp) ' Unit ' num2str(unit.ichan) '-' num2str(unit.icell)]);
+
+% if nax>1
+%     axes(rax(2));
+%     title(unit.timestamp);
+% end
+
+desc = sprintf('%s Chan %d Cell %d Series %d Exp %d ',unit.animal,unit.ichan,unit.icell, unit.iseries, unit.iexp);
+set(gcf,'numbertitle','off','name',desc)
+% 'menubar','none',
+
+set(gcf,'papertype','A4','paperunits','centimeters','paperposition',[0.63452 0.63452 19.715 28.408]);

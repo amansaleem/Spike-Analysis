@@ -1,0 +1,81 @@
+function [SpikeNum, nrpts, resolution, dt] = UnitGetSpikeNum( unit, analysisSpan, stimcond)
+
+resolution = 0.025;
+windowtype = 'box';
+dt = 0.001;
+semflag = 'sem';
+options = [0 1];
+options(2) = 1;
+
+%%
+
+% Decide whether to use spiketimes or traces
+datatype = 'spiketimes';
+
+% data = getfield(unit,datatype);
+data = unit.(datatype); % 2008-02-21
+
+nstim = size(data,1);
+nrpts	= size(data,2);
+
+% R = cell(nstim,1);
+% E = cell(nstim,1);
+
+
+% The binsize
+dt = resolution;
+
+           analysisSpan=[0.8, 0.9];
+    
+            clear SpikeNum
+            for istim=1:nstim
+                for irpt=1:nrpts%nrpts
+                    plot(unit.spiketimes{istim,irpt},1:1:length(unit.spiketimes{istim,irpt}))
+                    SpikeNum(istim,irpt)=length(find(unit.spiketimes{istim,irpt}>=analysisSpan(1)...
+                        & unit.spiketimes{istim,irpt}<=analysisSpan(2)));
+                end
+            end
+
+
+
+for istim = 1:nstim
+    maxdur = max(unit.stimdurs(istim,:));
+    
+    Rrpt = zeros(nrpts, ceil(maxdur/resolution)+1);
+    for irpt = 1:nrpts
+        spiketimes = [unit.spiketimes{istim,irpt}];
+        if ~isempty(spiketimes)
+            Rrpt(irpt,:) = histc( spiketimes/resolution, 0:ceil(maxdur/resolution) ) / resolution;
+        end
+        % handle missing files
+        %if unit.stimdurs(istim,irpt)==0, Rrpt(irpt,:) = NaN; end
+    end
+    
+    if KeepRepeats
+        R{istim} = Rrpt;
+        E{istim} = [];
+    else
+        if nrpts > 1
+            switch semflag
+                case 'sem'
+                    R{istim} = nanmean(Rrpt) ; % MC 2011-05 R{istim} = nansum(Rrpt) / nrpts;
+                    E{istim} = nansem(Rrpt);
+                case 'std'
+                    R{istim} = nanmean(Rrpt) ; % MC 2011-05 R{istim} = nansum(Rrpt) / nrpts;
+                    E{istim} = nanstd(Rrpt);
+            end
+        else
+            R{istim} = Rrpt;
+            E{istim} = Rrpt * 0;
+        end
+    end % if KeepRepeats
+    
+    % The last bin contains spikes that fall EXACTLY on the last bin edge.
+    % Discard it as will never happen.
+    R{istim} = R{istim}(:,1:end-1);
+    E{istim} = E{istim}(:,1:end-1);
+    
+end % istim
+
+
+

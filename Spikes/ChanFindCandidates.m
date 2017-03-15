@@ -1,0 +1,181 @@
+function [chan, vv] = ChanFindCandidates(chan,expt)
+% ChanFindCandidates finds candidate spikes by thresholding
+%
+% [chan, vv] = ChanFindCandidates(chan,expt)
+% finds the candidate spikes by thresholding
+%
+% vv = ChanFindCandidates(chan,expt) assumes you already know where the spikes are
+% and just returns the spike traces (faster).
+%
+% 1999-10 Matteo Carandini 
+% 2000-01 MC
+% 2000-03 MC 
+% 2000-09 MC
+% 2001-07 MC no more saving of vv in chan.spikes
+% 2001-12 MC introduced filtering, incorporated ChanGetSpikeTraces
+% 2007-09 MC minor fixes
+% 2007-10 MC parallelized interpolation, fixed case where interpolated spike does not cross
+% 2007-11 MC interpolation is now hybrid of parallel and serial
+% 2009-02 MC defined external function to do the filtering (ExptFilter)
+% 2010-06 MC made it deal with absent data files
+
+if nargout == 1
+    thresh_flag = 0;
+    % must remember to rename "vv" as "chan" at the end
+else
+    thresh_flag = 1;
+end
+
+ss = round(chan.tt *expt.samplerate/1000); 
+
+ichan = chan.iexptchan;
+
+if isempty(expt.data{ichan})
+    error('Missing data!'); 
+end 
+
+%% filter the data
+
+% this should be done once and for all...
+
+expt = ExptFilter(expt,chan);
+
+%% find the crossings
+
+if thresh_flag
+
+    fprintf(1,'Thresholding...');   
+
+    xs = cell(expt.nstim,expt.nrepeats);
+    stimlist	= cell(expt.nstim,expt.nrepeats); 
+    rptlist 	= cell(expt.nstim,expt.nrepeats); 
+    
+    ncands = zeros(expt.nstim,expt.nrepeats);
+    for istim = 1:expt.nstim
+        for irpt = 1:expt.nrepeats
+            v = expt.data{ichan}{istim,irpt};
+            % MC 2010-03 added information to the warning dialog
+            if isempty(v), 
+                fprintf('WARNING: Missing data for channel %d, stim %d, repeat %d\n', ichan,istim, irpt); 
+            else 
+                if chan.threshsign == 1
+                    xs{istim,irpt} = find( diff( v >= chan.thresh) == 1 );
+                else
+                    xs{istim,irpt} = find( diff( v <= chan.thresh) == 1 );
+                end
+                % drop the ones at the edges
+                xs{istim,irpt}( xs{istim,irpt}<=-ss(1) | xs{istim,irpt}>length(v)-ss(end)) = [];
+                % drop the ones that already crossed in the last chan.mindur msec
+                xs{istim,irpt}(1+find(diff(xs{istim,irpt})< chan.mindur*expt.samplerate/1000))=[];
+                ncands(istim,irpt) = length(xs{istim,irpt});
+                if ncands(istim,irpt)>5000 % a completely arbitrary number
+                    errordlg(['There are > 5000 candidate spikes for stim ' num2str(istim) ' repeat ' num2str(irpt) '. Will ignore the subsequent ones.'],...
+                        'Spike Sorter');
+                 ncands(istim,irpt) = 5000;
+                 xs{istim,irpt} = xs{istim,irpt}(1:5000);
+               end
+                stimlist{istim,irpt}	= istim*ones(1,ncands(istim,irpt));
+                rptlist{istim,irpt}	=  irpt*ones(1,ncands(istim,irpt));
+            end
+        end
+    end
+    
+    % this is way faster than anything we had before, because it allocates the memory all at once
+    chan.spikes = struct(...
+        'istim',	num2cell([stimlist{:}]),...
+        'irpt',	num2cell([ rptlist{:}]),...
+        't',		num2cell([ xs{:}]/expt.samplerate));
+    
+    fprintf(1,'done\n');
+
+end
+
+nspikes = size(chan.spikes,2);
+fprintf(1,'Channel %d: %d candidate spikes\n',ichan,nspikes);
+
+
+
+%% get the spike traces
+
+nsamples = length(chan.tt);
+
+vv = zeros(nsamples,nspikes); 
+
+% ndatasamples = length(expt.data{ichan});
+
+if nspikes>0
+    spikesamples = round([chan.spikes(:).t]*expt.samplerate);
+    for ispike = 1:nspikes
+        thesamples = spikesamples(ispike)+ ss;
+        thedata = expt.data{ichan}{chan.spikes(ispike).istim,chan.spikes(ispike).irpt};
+        if thesamples(1) > 0 && thesamples(end) < length(thedata)
+            vv(:,ispike) = thedata(thesamples);
+        end
+    end
+end
+
+%% refine the traces with interpolation
+
+interpfactor = 4;
+
+fprintf(1,'Interpolating...');   
+
+ix_old = find(ss==0)*interpfactor;
+
+ninterp = length(chan.tt)*interpfactor;
+
+clear expt
+
+% TO AVOID MEMORY PROBLEMS, A HYBRID OF SERIAL AND PARALLEL:
+if nspikes>0
+    [nr,nc] = size(vv);
+    vv_interp = zeros(nr*interpfactor,nc,'single'); % made it single 2007-11
+    nblocks = ceil(nc/100);
+    for iblock = 1:nblocks
+        cols = 100*(iblock-1)+(1:100);
+        cols(cols>nc) = [];
+        vv_interp(:,cols) = resample(vv(:,cols),interpfactor,1);
+    end
+end
+
+fprintf(1,'done\n');
+
+%% realign
+
+fprintf(1,'Refining the thresholding...');   
+
+vv_refined = zeros(nspikes,nsamples) * NaN; % notice that it is transposed wrt vv
+
+for ispike = 1:nspikes
+    
+    % vv_interp = interp(vv(ispike,:),interpfactor);
+    % find the new zero (call it ix)
+    if chan.threshsign == 1
+        ix = find( diff( vv_interp(:,ispike) >= chan.thresh) == 1 );
+    else
+        ix = find( diff( vv_interp(:,ispike) <= chan.thresh) == 1 );
+    end
+    % in case there are more than one crossing, pick the one that is
+    % closest to the old crossing
+    if length(ix)>1
+        [m,iix]=min(abs(ix-ix_old));
+        ix = ix(iix);
+    end
+    if isempty(ix)
+        ix = ix_old;
+    end
+    ii_interp = ix + ss*interpfactor;
+    insiders = (ii_interp>0&ii_interp<ninterp);
+    vv_refined(ispike,insiders) = vv_interp(ii_interp(insiders),ispike);
+end
+
+fprintf(1,'done\n');
+
+vv = vv_refined; 
+% vv_refined = [];
+
+if nargout == 1
+    % Hack: rename the output variable 
+    chan = vv;
+end
+
